@@ -1,0 +1,42 @@
+services:
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DBO_DATA_DIR: /app/data
+      DBO_ENVIRONMENT: production
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  backend:
+    build: ./backend
+    environment:
+      DBO_DATA_DIR: /app/data
+      DBO_ENVIRONMENT: production
+      DBO_PUBLIC_ORIGIN: ${DBO_PUBLIC_ORIGIN:-http://localhost:3000}
+      DBO_ALLOW_INSECURE_COOKIES: "true"
+    volumes:
+      - backend_data:/app/data
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  backend_data:

@@ -1,0 +1,21 @@
+{
+  "row_count": 24,
+  "total_revenue_usd": "3760.00",
+  "regional_revenue_usd": {"North": "960.00", "South": "1800.00", "East": "480.00", "West": "520.00"},
+  "highest_revenue_region": "South",
+  "monthly_revenue_usd": {"2026-01": "360.00", "2026-02": "1000.00", "2026-03": "2400.00"},
+  "top_five_customers": [
+    {"customer_id": "C06", "revenue_usd": "1360.00"},
+    {"customer_id": "C05", "revenue_usd": "560.00"},
+    {"customer_id": "C04", "revenue_usd": "520.00"},
+    {"customer_id": "C03", "revenue_usd": "480.00"},
+    {"customer_id": "C02", "revenue_usd": "440.00"}
+  ],
+  "category_revenue_usd": {"Stationery": "360.00", "Accessories": "1000.00", "Office": "2400.00"},
+  "unmatched_customer_rows": 0,
+  "unmatched_product_rows": 0,
+  "regions_below_1000_usd": ["East", "North", "West"],
+  "anomaly": {"rule": "IQR 1.5; linear percentile (n-1)*p", "sample_size": 24,
+    "q1_usd": "67.50", "q3_usd": "182.50", "lower_usd": "-105.00", "upper_usd": "355.00", "sale_ids": ["S24"]},
+  "quality": {"rows": 5, "duplicate_rows": 1, "missing_cells": {"record_id": 0, "category": 1, "amount_usd": 2}}
+}

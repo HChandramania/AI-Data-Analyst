@@ -1,0 +1,95 @@
+# Product Requirements Document
+
+## Implementation status
+Phase 0 foundation and Phase 1 authentication/CSV intake are implemented. Verification and remaining gates are in `docs/VERIFICATION.md`. The requirements and user journeys below remain the full product target; analysis and the other bonuses are not delivered.
+
+## 1. Product and goal
+**Working name:** Digital Back Office AI Data Analyst.
+
+Enable a business user to upload CSV files, ask questions in plain language, and receive accurate computed answers, charts, business summaries, and understandable anomaly explanations. Deliver a polished, reviewable internship submission within a two-day implementation window.
+
+The differentiator is trustworthy analysis: every numeric answer can be traced to a dataset version, executed query, and computed result. Visible method explanations describe the calculation and assumptions, rather than exposing private model reasoning.
+
+## 2. Source and scope
+Source: `Software Engineer Intern Assignment.pdf`, headed “AI Engineer Assignment,” Digital Back Office Ltd. The assignment leaves the technology stack open.
+
+| Scope | Requirements |
+| --- | --- |
+| Mandatory | Upload and validate one or more CSVs; natural-language questions; insights and summaries; bar/line/pie/scatter charts; SQL and/or Pandas generation; explained anomalies; response explanations; session conversation context |
+| Agreed optional bonuses | Report export, dashboard generation, semantic search, caching, authentication, observability/logging |
+| Supporting implementation | Data-quality profiling, structured tool planning, small evaluation suite, explicit multi-file joins |
+| Deferred | Forecasting, unrestricted Python execution, autonomous agent crews, scheduled jobs, enterprise roles, external database connectors, real-time streaming |
+
+Multiple CSV uploads are mandatory. Cross-file analysis is listed separately as a bonus in the PDF; this plan supports explicit joins without guessing relationships. SQL satisfies the assignment's SQL and/or Pandas requirement.
+
+## 3. Users and primary journey
+The primary user is an analyst or operator exploring sales/customer/product data. The evaluator needs a reproducible application with clear evidence of engineering quality.
+
+1. Sign in using a documented local demo account or register a local account.
+2. Upload one or more CSVs; see accepted files, inferred types, row counts, and quality warnings.
+3. Select the datasets for a conversation and ask a business question.
+4. Receive a computed answer with a table or chart, concise method, SQL, and dataset references.
+5. Ask a contextual follow-up such as “Now break that down by month.”
+6. Request anomalies or generate a dashboard from the selected data.
+7. Search previous analyses by meaning and export selected results as a report.
+
+## 4. Functional requirements and acceptance
+
+| ID | Requirement | Acceptance criterion |
+| --- | --- | --- |
+| C01 | CSV intake | Multiple valid CSVs can be uploaded independently; invalid/empty/oversized files fail with actionable errors; headers, types, and row counts are shown. A failed file does not corrupt an accepted file. |
+| C02 | Data quality | Show missing values, duplicate-row count, inferred types, and parsing warnings. Do not silently impute, drop, or reinterpret data. |
+| C03 | Questions | Highest-revenue region and top-five customers match independently verified sample-data results; unsupported or ambiguous questions produce clarification. |
+| C04 | Insights | Summaries reference computed aggregates and identify the datasets used; no invented values or causal claims. |
+| C05 | Charts | Valid bar, line, pie, and scatter charts render with titles, units where known, labeled axes/legend, and a supporting result table. Unsupported chart/data combinations give an explanation. |
+| C06 | Generated code | Show the validated SQL used for execution and allow copying it. A request to generate SQL returns an explanation of the tables and columns. |
+| C07 | Anomalies | Return flagged records/groups with rule, baseline, threshold, sample size, and caveat. Constant or too-small data produces an honest “insufficient evidence” result. |
+| C08 | Explainability | Answers identify calculation, filters, grouping, dataset versions, assumptions, and limitations; figures match the query result. |
+| C09 | Context | A follow-up inherits the selected dataset and relevant prior analytical intent; dataset changes cannot silently reuse an incompatible plan. |
+| C10 | Multiple files | User can select several datasets and confirm join keys; ambiguous joins require clarification; show join type, key uniqueness, and unmatched counts. |
+| B01 | Export reports | Download a self-contained HTML report containing selected answers, charts, result tables, SQL, assumptions, dataset versions, and generation time. It opens offline without remote assets. |
+| B02 | Dashboard generation | Produce a dashboard of at most six computed cards/charts based on the chosen datasets. Show real empty/error states and allow saving/reopening it. |
+| B03 | Semantic search | Meaning-based search retrieves the owner's past successful analyses, with source titles and excerpts. For example, “regional performance” can retrieve an analysis titled “Revenue by territory.” |
+| B04 | Caching | Repeated equivalent structured analyses can reuse execution results; responses indicate cache hits. New dataset versions or different owners cannot reuse stale/foreign results. |
+| B05 | Authentication | Register/login/logout works; anonymous users cannot access private resources; a second user cannot read/search/export another user's data by guessing IDs. |
+| B06 | Observability | Logs include request ID, timings, provider/model identifier, query outcome, and cache state; health endpoints reflect dependency readiness; sensitive content is excluded. |
+
+“Underperforming” needs an explicit comparison such as revenue below a selected baseline. Do not invent a target. Monthly trends require a user-confirmed date column when inference is uncertain. Revenue must come from an existing field or an explicitly explained formula.
+
+## 5. Experience requirements
+- Main workspace: dataset sidebar, central conversation, result cards with chart/table tabs, and expandable SQL/method details.
+- Clearly distinguish uploading, profiling, planning, querying, and failed analysis states. Preserve the user's question when an operation fails.
+- Make the first successful analysis easy: sample data, suggested questions, and a visible dataset selection.
+- Provide readable responsive layouts, keyboard-accessible controls, adequate contrast, and meaningful chart labels.
+- Dashboard and export should reuse successful analysis artifacts; do not recompute numbers with a separate narrative pipeline.
+
+## 6. Proposed operating limits
+Initial limits: 10 MiB per CSV, 100,000 rows per CSV, 50 columns, five datasets per analysis, 500 returned table rows, and six dashboard cards. These are design choices, not assignment requirements. Enforce and document them consistently; adjust only after measurement.
+
+Support UTF-8 and UTF-8 BOM CSVs with comma delimiters initially. Preserve originals and document unsupported formats. Retain uploaded data until owner deletion; deleting a dataset also invalidates related analyses/search/cache as defined in the technical design.
+
+No latency or scale claims without measurements. A successful local sample-data demo and bounded execution are release requirements.
+
+## 7. Two-day delivery plan
+| Window | Deliverable and gate |
+| --- | --- |
+| Day 1, first block | Scaffold, Docker/database, authentication, sample data, CSV validation/profiling; pass upload and owner isolation checks |
+| Day 1, middle block | Structured planning, read-only SQL validation/execution, evidence-backed responses; verify known business questions |
+| Day 1, final block | Charts, context, insights, anomalies, explicit joins; core end-to-end demo works |
+| Day 2, first block | Saved dashboards, report export, semantic search, version-aware caching, logs/health checks |
+| Day 2, middle block | Security/failure tests, evaluation fixtures, clean-start checks, UI polish |
+| Day 2, final block | README, architecture diagram, screenshots, 10–30 second demo, submission audit; reserve time for defects |
+
+This is an aggressive schedule. Implement small versions of each bonus: local sessions, local embeddings, process-local bounded caching, fixed dashboard layout, HTML export, and structured logs. Avoid adding Redis, Kafka, Kubernetes, or a separate worker service to the initial submission.
+
+## 8. Release and submission checklist
+- Complete source code in a GitHub repository with no secrets or private uploaded data.
+- README: setup, environment variables, sample questions, stack decisions, limits, assumptions, security model, completed vs deferred scope, and test instructions.
+- Architecture diagram committed and shown in README.
+- Both screenshots and a short demo video or live app link in README, following the assignment wording.
+- A 10–30 second demo video supplied with the repository link; a live link does not replace the separately requested submission video.
+- Docker support and checked-in synthetic sample datasets with provenance and expected answers.
+- All mandatory flows and six agreed bonuses demonstrated; relevant tests and frontend build pass; measured results reported honestly.
+
+## 9. Main risks
+LLM mistakes are mitigated by structured validation and deterministic computation. Arbitrary query execution is mitigated by restricted SQL and process isolation. Ambiguous business language is mitigated by clarification. Provider availability is mitigated by explicit errors and an injectable fake for tests only. Time risk is mitigated by shallow, usable bonuses and an early core demo.
