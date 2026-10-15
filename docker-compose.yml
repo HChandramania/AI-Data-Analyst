@@ -18,8 +18,10 @@ services:
       DBO_ENVIRONMENT: production
       DBO_PUBLIC_ORIGIN: ${DBO_PUBLIC_ORIGIN:-http://localhost:3000}
       DBO_ALLOW_INSECURE_COOKIES: "true"
+      DBO_RUNTIME_ENV_FILE: /app/runtime.env
     volumes:
       - backend_data:/app/data
+      - ./.env:/app/runtime.env:ro
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:

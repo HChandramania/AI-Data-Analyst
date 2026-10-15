@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   const id = randomUUID();
-  const permitted = path[0] === "auth" || path[0] === "datasets" ||
-    (path[0] === "health" && path.length === 2 && ["live", "ready"].includes(path[1]));
+  const permitted = ["auth", "datasets", "conversations", "analyses", "dashboards", "search"].includes(path[0]) ||
+    (path.join("/") === "reports/export" && request.method === "POST") ||
+    (path[0] === "health" && path.length === 2 && ["live", "ready", "metrics"].includes(path[1]));
   const failure = (status: number, code: string, message: string) => NextResponse.json({
     request_id: id, error: { code, message, details: {} },
   }, { status, headers: { "X-Request-ID": id, "Cache-Control": "no-store" } });
@@ -26,7 +27,7 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
     if (["POST", "PUT", "PATCH"].includes(request.method) && request.body) {
       const reader = request.body.getReader();
       const chunks: ArrayBuffer[] = [];
-      const limit = path[0] === "datasets" ? 32 * 1024 * 1024 : 1024 * 1024;
+      const limit = path[0] === "datasets" ? 256 * 1024 * 1024 : 1024 * 1024;
       let size = 0;
       while (true) {
         const { done, value } = await reader.read();
@@ -42,15 +43,22 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
     }
     const upstream = await fetch(new URL(`/api/v1/${path.join("/")}`, backend), {
       method: request.method, headers, body, redirect: "error", cache: "no-store",
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(path[0] === "datasets" ? 210000 : 120000),
     });
     const responseHeaders = new Headers({ "Cache-Control": "no-store",
       "X-Request-ID": upstream.headers.get("X-Request-ID") ?? id });
     const contentType = upstream.headers.get("content-type");
-    if (!contentType?.startsWith("application/json")) {
+    const attachment = upstream.headers.get("content-disposition");
+    const report = path.join("/") === "reports/export" && request.method === "POST" && upstream.ok &&
+      contentType?.startsWith("text/html") && /^attachment; filename="[a-zA-Z0-9_-]+\.html"$/.test(attachment ?? "");
+    if (!contentType?.startsWith("application/json") && !report) {
       return failure(502, "INVALID_BACKEND_RESPONSE", "The backend returned an invalid response.");
     }
-    responseHeaders.set("Content-Type", contentType);
+    responseHeaders.set("Content-Type", contentType!);
+    if (report) {
+      responseHeaders.set("Content-Disposition", attachment!);
+      responseHeaders.set("X-Content-Type-Options", "nosniff");
+    }
     for (const cookie of upstream.headers.getSetCookie()) responseHeaders.append("Set-Cookie", cookie);
     return new NextResponse(upstream.body, { status: upstream.status, headers: responseHeaders });
   } catch {
@@ -61,3 +69,4 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
 export const GET = proxy;
 export const POST = proxy;
 export const DELETE = proxy;
+export const PATCH = proxy;

@@ -1,7 +1,11 @@
 # Product Requirements Document
 
 ## Implementation status
-Phase 0 foundation and Phase 1 authentication/CSV intake are implemented. Verification and remaining gates are in `docs/VERIFICATION.md`. The requirements and user journeys below remain the full product target; analysis and the other bonuses are not delivered.
+
+Confirmed joins now use unique planner column references to avoid collisions between dataset-local IDs. Three live planning/execution checks against the sales/customer fixtures matched regional totals; browser join acceptance remains to be verified.
+
+SQL/dashboard planning supports bounded Gemini → OpenRouter → Groq fallback when server-side keys are configured; semantic embeddings remain Gemini-only. Mocked-provider verification is recorded separately from live acceptance.
+Phases 0–5 implement the foundation, authentication/CSV intake, computed analysis, charts, follow-up intent, IQR anomalies, explicit joins, saved dashboards, offline HTML reports, semantic history search, bounded execution caching, and safe telemetry. Verification and remaining gates are in `docs/VERIFICATION.md`. Phase 5 automated tests use a fake embedding provider; live embedding quality, earlier live follow-up/join, and responsive/manual gates remain open. The requirements below remain the full product target.
 
 ## 1. Product and goal
 **Working name:** Digital Back Office AI Data Analyst.
@@ -64,7 +68,8 @@ The primary user is an analyst or operator exploring sales/customer/product data
 - Dashboard and export should reuse successful analysis artifacts; do not recompute numbers with a separate narrative pipeline.
 
 ## 6. Proposed operating limits
-Initial limits: 10 MiB per CSV, 100,000 rows per CSV, 50 columns, five datasets per analysis, 500 returned table rows, and six dashboard cards. These are design choices, not assignment requirements. Enforce and document them consistently; adjust only after measurement.
+XLSX intake also rejects archives exceeding 64 MiB of total uncompressed entries before workbook parsing.
+Initial limits: 64 MiB per CSV, 1,100,000 rows per CSV, 50 columns, five datasets per analysis, 500 returned table rows, and six dashboard cards. These are design choices, not assignment requirements. Enforce and document them consistently; adjust only after measurement.
 
 Support UTF-8 and UTF-8 BOM CSVs with comma delimiters initially. Preserve originals and document unsupported formats. Retain uploaded data until owner deletion; deleting a dataset also invalidates related analyses/search/cache as defined in the technical design.
 
@@ -93,3 +98,13 @@ This is an aggressive schedule. Implement small versions of each bonus: local se
 
 ## 9. Main risks
 LLM mistakes are mitigated by structured validation and deterministic computation. Arbitrary query execution is mitigated by restricted SQL and process isolation. Ambiguous business language is mitigated by clarification. Provider availability is mitigated by explicit errors and an injectable fake for tests only. Time risk is mitigated by shallow, usable bonuses and an early core demo.
+
+Semantic search applies a 0.60 cosine-similarity floor before returning results. This initial heuristic was checked against synthetic sales paraphrases (top scores 0.65?0.71) and an unrelated leave query (maximum 0.54); it is not a probability or a universal relevance guarantee. Lower-scoring queries can return an empty result, including some relevant paraphrases. Recalibrate if the embedding model changes.
+
+Individual saved analyses can be permanently deleted from Analyze using the confirmation action (`DELETE /api/v1/analyses/{id}`). The endpoint requires the authenticated owner and CSRF protection. Deletion cascades to the search document; direct retrieval, rerun and export of that ID become unavailable. Referencing dashboard cards become unavailable while other cards remain usable. Dataset files, conversation messages, other analyses, and already downloaded reports remain unchanged. This deletes the saved artifact, not the conversation text.
+
+Uploads accept up to 10 files per request, 64 MiB per file and 256 MiB per multipart request. New analyses and dashboard source selection support up to five datasets, with up to four confirmed join relationships. Existing saved analyses and dashboard evidence remain readable, including earlier larger selections. Provider schema context (32,000 characters), SQL/result caps, deadlines, query memory, and concurrency limits remain enforced; large schemas may require selecting fewer or narrower sources.
+
+Join configuration accepts an unordered, connected, directed acyclic tree rooted at one left-side dataset. Every right dataset has exactly one parent; each edge adds a new dataset. The server computes execution order without reversing edge directions or LEFT preservation semantics. Reorient conflicting edges explicitly; ambiguous directions, cycles, parallel edges, disconnected sources and incompatible columns are rejected. Integer/decimal keys are compatible; other types must match. Edges accept `left_dataset_id`, `left_column`, `right_dataset_id`, `right_column`, `join_type` (INNER/LEFT), alongside legacy `left`, `left_key`, `right`, `right_key`, `type`. Stored proposals retain the legacy field names and SQL is checked against the exact ordered graph. No migration is required.
+
+Analyze supports adding/removing relationships and selecting both endpoints. Edits clear join/multiplication consent. Pairwise diagnostics flag source repetition; multiple expanding relationships also show a conservative fanout warning. Explicit multiplication consent is required to execute risky joins. Consent does not establish aggregate correctness: results may count or sum repeated records, and the answer/method disclose this. No automatic pre-aggregation rewrite or final multi-hop cardinality estimate is implemented. Upload limits remain ten files per batch; the five-dataset limit applies to new analysis selections.

@@ -1,6 +1,4 @@
 import asyncio
-import json
-import logging
 import secrets
 import tempfile
 from contextlib import asynccontextmanager
@@ -8,7 +6,7 @@ from time import perf_counter
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -17,19 +15,26 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from starlette.exceptions import HTTPException
 
+from app.analysis import router as analysis_router
+from app.auth import current_user
 from app.auth import router as auth_router
-from app.config import Settings
+from app.config import Settings, default_runtime_env_file
+from app.dashboards import router as dashboards_router
 from app.database import create_database_engine
 from app.datasets import router as datasets_router
+from app.execution_cache import ExecutionCache
 from app.models import Base
+from app.observability import counters, database_stats, emit, lock, request_id
+from app.planner import GeminiProvider, PlanProvider
+from app.reports import router as reports_router
+from app.search import router as search_router
 
-logger = logging.getLogger("dbo.requests")
-SCHEMA_REVISION = "0002"
+SCHEMA_REVISION = "0005"
 
 
 class HealthData(BaseModel):
     status: Literal["alive", "ready"]
-    phase: Literal[1] = 1
+    phase: Literal[2] = 2
 
 
 class HealthResponse(BaseModel):
@@ -58,8 +63,12 @@ def error(request: Request, status: int, code: str, message: str) -> JSONRespons
     )
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, provider: PlanProvider | None = None) -> FastAPI:
+    supplied_settings = settings is not None
     settings = settings or Settings()
+    runtime_env_file = settings.runtime_env_file
+    if runtime_env_file is None and not supplied_settings:
+        runtime_env_file = default_runtime_env_file()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -73,13 +82,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Digital Back Office", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
+    app.state.provider = provider or GeminiProvider(settings, runtime_env_file)
+    app.state.query_capacity = asyncio.Semaphore(2)
+    app.state.dashboard_capacity = asyncio.Semaphore(1)
+    app.state.embedding_capacity = asyncio.Semaphore(2)
+    app.state.execution_cache = ExecutionCache()
     intake_capacity = asyncio.Semaphore(2)
+
+    @app.middleware("http")
+    async def telemetry(request: Request, call_next):
+        started = perf_counter()
+        stats = {"count": 0, "ms": 0.0}
+        token = database_stats.set(stats)
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            database_stats.reset(token)
+            route = request.scope.get("route")
+            emit(
+                "request",
+                route=getattr(route, "path", "unmatched"),
+                status=response.status_code if "response" in locals() else 500,
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                db_ms=round(stats["ms"], 2),
+                db_queries=stats["count"],
+            )
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         # Generate locally: incoming IDs can contain private data or log injection.
         request.state.request_id = str(uuid4())
-        started = perf_counter()
+        rid_token = request_id.set(request.state.request_id)
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             if request.headers.get("origin") != settings.public_origin:
                 response = error(request, 403, "ORIGIN_REJECTED", "Request origin rejected.")
@@ -91,7 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 response = error(request, 403, "CSRF_REJECTED", "Request token rejected.")
                 response.headers["X-Request-ID"] = request.state.request_id
                 return response
-        limit = 32 * 1024 * 1024
+        limit = 256 * 1024 * 1024
         if request.url.path == "/api/v1/datasets" and request.method == "POST":
             try:
                 await asyncio.wait_for(intake_capacity.acquire(), timeout=0.1)
@@ -115,7 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request._receive = bounded_receive
         try:
             if request.url.path == "/api/v1/datasets" and request.method == "POST":
-                response = await asyncio.wait_for(call_next(request), timeout=60)
+                response = await asyncio.wait_for(call_next(request), timeout=180)
             else:
                 response = await call_next(request)
         except TimeoutError:
@@ -129,18 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 intake_capacity.release()
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["Cache-Control"] = "no-store"
-        route = request.scope.get("route")
-        logger.info(
-            json.dumps(
-                {
-                    "event": "request",
-                    "request_id": request.state.request_id,
-                    "route": getattr(route, "path", "unmatched"),
-                    "status": response.status_code,
-                    "duration_ms": round((perf_counter() - started) * 1000, 2),
-                }
-            )
-        )
+        request_id.reset(rid_token)
         return response
 
     @app.exception_handler(HTTPException)
@@ -191,4 +214,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(datasets_router)
+    app.include_router(analysis_router)
+    app.include_router(dashboards_router)
+    app.include_router(reports_router)
+    app.include_router(search_router)
+
+    @app.get("/api/v1/health/metrics")
+    def metrics(request: Request, _user=Depends(current_user)):
+        with lock:
+            return {"request_id": request.state.request_id, "data": dict(counters)}
+
     return app

@@ -12,4 +12,4 @@ export async function proxy(request: NextRequest) {
   return NextResponse.redirect(new URL("/login", request.url));
 }
 
-export const config = { matcher: ["/analyze/:path*", "/datasets/:path*"] };
+export const config = { matcher: ["/analyze/:path*", "/datasets/:path*", "/dashboards/:path*"] };

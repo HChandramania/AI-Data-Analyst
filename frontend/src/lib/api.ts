@@ -1,7 +1,7 @@
-export type Readiness = { request_id: string; data: { status: "ready"; phase: 1 } };
+export type Readiness = { request_id: string; data: { status: "ready"; phase: 2 } };
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly requestId?: string) { super(message); }
+  constructor(message: string, public readonly requestId?: string, public readonly status?: number) { super(message); }
 }
 
 export async function getReadiness(signal: AbortSignal): Promise<Readiness> {
@@ -15,10 +15,10 @@ export async function getReadiness(signal: AbortSignal): Promise<Readiness> {
       typeof body.request_id !== "string" || !("data" in body) ||
       typeof body.data !== "object" || body.data === null ||
       !("status" in body.data) || body.data.status !== "ready" ||
-      !("phase" in body.data) || body.data.phase !== 1) {
+      !("phase" in body.data) || body.data.phase !== 2) {
     throw new ApiError("The service returned an unexpected response.");
   }
-  return { request_id: body.request_id, data: { status: "ready", phase: 1 } };
+  return { request_id: body.request_id, data: { status: "ready", phase: 2 } };
 }
 
 let csrfToken: string | null = null;
@@ -43,7 +43,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     window.dispatchEvent(new Event("session-expired"));
   }
   const body = await response.json();
-  if (!response.ok) throw new ApiError(body.error?.message ?? "Request failed.", body.request_id);
+  if (!response.ok) throw new ApiError(body.error?.message ?? "Request failed.", body.request_id, response.status);
   return body.data as T;
 }
 
@@ -73,3 +73,20 @@ export async function uploadDatasets<T>(files: File[], uploaded: () => void): Pr
 }
 
 export function clearPrivateState() { csrfToken = null; sessionStorage.removeItem("selected-datasets"); }
+
+export async function downloadReport(title: string, analysisIds: string[]) {
+  const token = await ensureCsrf();
+  const response = await fetch("/api/v1/reports/export", { method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": token },
+    body: JSON.stringify({ title, analysis_ids: analysisIds }) });
+  if (!response.ok) {
+    if (response.status === 401) { csrfToken = null; window.dispatchEvent(new Event("session-expired")); }
+    throw new ApiError("Report unavailable. Check selections and source availability, then try again.");
+  }
+  const filename = response.headers.get("Content-Disposition")?.match(/filename="([a-zA-Z0-9_-]+\.html)"/)?.[1];
+  if (!filename || !response.headers.get("Content-Type")?.startsWith("text/html")) throw new ApiError("Invalid report response.");
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a"); link.href = url; link.download = filename;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}

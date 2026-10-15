@@ -70,6 +70,8 @@ def current_user(request: Request, db: DbSession = Depends(get_session)) -> User
     user = db.get(User, session.user_id)
     if not user:
         raise HTTPException(401)
+    db.expunge(user)
+    db.rollback()
     return user
 
 

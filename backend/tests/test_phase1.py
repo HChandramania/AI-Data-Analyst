@@ -1,17 +1,38 @@
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pyarrow.parquet as pq
 import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.config import Settings
 from app.main import create_app
 from app.models import Session
+
+
+def test_xlsx_rejects_expanded_archive_before_workbook_parsing(monkeypatch):
+    from app import datasets
+
+    archive = BytesIO()
+    with ZipFile(archive, "w", compression=ZIP_DEFLATED) as workbook:
+        with workbook.open("xl/sharedStrings.xml", "w") as strings:
+            for _ in range(65):
+                strings.write(b"x" * 1024 * 1024)
+    assert len(archive.getvalue()) < datasets.FILE_LIMIT
+
+    def forbidden_parser(*args, **kwargs):
+        pytest.fail("Oversized expanded XLSX reached workbook parser")
+
+    monkeypatch.setattr(datasets, "load_workbook", forbidden_parser)
+    with pytest.raises(datasets.IntakeError, match="expanded"):
+        datasets.inspect_xlsx(archive.getvalue())
 
 
 @pytest.fixture
@@ -70,6 +91,24 @@ def test_auth_lifecycle_csrf_origin_and_cookie(client):
     )
 
 
+def test_ten_file_batch_and_eleven_file_rejection(client):
+    client, settings = client
+    register(client, "batch-ten@example.test")
+
+    def files(count):
+        return [("files", (f"source{i}.csv", f"id,value\nA,{i}\n".encode(), "text/csv")) for i in range(count)]
+
+    response = client.post("/api/v1/datasets", headers=secure_headers(client), files=files(11))
+    assert response.status_code == 413
+    assert client.get("/api/v1/datasets").json()["data"] == []
+    assert not list((settings.data_dir / "datasets").iterdir())
+    response = client.post("/api/v1/datasets", headers=secure_headers(client), files=files(10))
+    assert response.status_code == 200, response.text
+    assert len(response.json()["data"]) == 10
+    assert all(item["status"] == "accepted" for item in response.json()["data"])
+    assert len(client.get("/api/v1/datasets").json()["data"]) == 10
+
+
 def test_upload_profile_ownership_and_delete(client):
     client, settings = client
     register(client, "first@example.test")
@@ -118,6 +157,62 @@ def test_upload_profile_ownership_and_delete(client):
     )
     assert client.delete(f"/api/v1/datasets/{dataset_id}", headers=secure_headers(client)).status_code == 200
     assert not Path(snapshot).exists()
+
+
+def test_identical_dataset_cannot_be_uploaded_twice_for_same_owner(client):
+    client, _ = client
+    register(client, "duplicate@example.test")
+    raw = b"region,revenue\nSouth,1800\nNorth,960\n"
+
+    first = client.post(
+        "/api/v1/datasets",
+        headers=secure_headers(client),
+        files=[("files", ("sales.csv", raw, "text/csv"))],
+    )
+    assert first.status_code == 200
+    assert first.json()["data"][0]["status"] == "accepted"
+
+    second = client.post(
+        "/api/v1/datasets",
+        headers=secure_headers(client),
+        files=[("files", ("renamed-sales.csv", raw, "text/csv"))],
+    )
+    assert second.status_code == 200
+    result = second.json()["data"][0]
+    assert result["status"] == "rejected"
+    assert result["error"] == "This dataset has already been uploaded."
+    assert len(client.get("/api/v1/datasets").json()["data"]) == 1
+
+
+def test_xlsx_upload_profiles_first_worksheet(client):
+    client, settings = client
+    register(client, "xlsx@example.test")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["region", "revenue"])
+    worksheet.append(["South", 1800])
+    worksheet.append(["North", 960])
+    payload = BytesIO()
+    workbook.save(payload)
+
+    response = client.post(
+        "/api/v1/datasets",
+        headers=secure_headers(client),
+        files=[
+            (
+                "files",
+                ("sales.xlsx", payload.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            )
+        ],
+    )
+
+    assert response.status_code == 200
+    result = response.json()["data"][0]
+    assert result["status"] == "accepted"
+    assert result["dataset"]["display_name"] == "sales.xlsx"
+    assert result["dataset"]["profile"]["row_count"] == 2
+    assert result["dataset"]["profile"]["columns"][1]["type"] == "integer"
+    assert (settings.data_dir / "datasets" / result["dataset"]["id"] / "original.xlsx").exists()
 
 
 @pytest.mark.parametrize(
@@ -172,7 +267,12 @@ def test_expiry_secure_cookie_and_login_throttle(client):
         assert "secure" in response.headers["set-cookie"].lower()
 
 
-def test_upload_limits_and_recovery(client):
+def test_upload_limits_and_recovery(client, monkeypatch):
+    from app import datasets
+
+    # Exercise the real limits at smaller thresholds without allocating oversized fixtures.
+    monkeypatch.setattr(datasets, "ROW_LIMIT", 100000)
+    monkeypatch.setattr(datasets, "FILE_LIMIT", 10 * 1024 * 1024)
     client, settings = client
     register(client, "limits@example.test")
     invalid = [

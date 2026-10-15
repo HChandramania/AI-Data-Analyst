@@ -1,6 +1,12 @@
 # Synthetic evaluation fixtures
 
-All records and names are invented; no real personal or business data. UTF-8, comma-delimited, header row. These files are not automatically uploaded or analyzed by Phase 0.
+All records and names are invented; no real personal or business data. UTF-8, comma-delimited, header row. These files are not automatically uploaded.
+
+`no_outliers.csv` contains 24 valid observations with values 1–24 and unique record IDs. With the app's continuous-percentile 1.5×IQR rule, Q1=6.75, Q3=18.25, IQR=11.5, and bounds are −10.5 to 35.5: zero records are flagged. Upload this file alone and ask: “Detect outliers in value using the 1.5 × IQR rule across the entire dataset, without grouping.”
+
+`phase3_anomalies.csv` is a standalone IQR fixture used by Phase 3 API tests and available for manual upload. It contains values 1–24, then 1,000, then one null: 26 records, 25 valid observations, Q1=7, Q3=19, IQR=12, bounds −11 and 37. Exactly record 25 (`R25`, value 1,000) is flagged. The null is disclosed and excluded; this is a synthetic statistical flag, not fraud/error evidence.
+
+`analysis_flat.csv` is the Phase 2 single-table fixture. `python sample_data/build_analysis_flat.py` generates it by explicitly joining sales to customers on `customer_id` and calculating each row's `revenue_usd` with decimal arithmetic. The same bytes are served from `frontend/public/sample_data/analysis_flat.csv` by **Use analysis sample**. This fixture makes regional, monthly, and customer questions available before Phase 3's runtime join workflow.
 
 - `sales.csv`: 24 distinct sale lines, January–March 2026. `sale_id` is unique. Each row is one sale, not a multi-line order. Quantity is a positive integer count; `unit_price_usd` is the transaction price in USD (can vary by transaction).
 - `customers.csv`: six unique `customer_id` values; region is the customer's region, not a shipment destination. Names are synthetic business labels.
@@ -9,6 +15,9 @@ All records and names are invented; no real personal or business data. UTF-8, co
 - Dates are ISO calendar dates, no time of day or timezone conversion. Month means calendar month of `sale_date`.
 - Revenue per line = `quantity * unit_price_usd`; gross USD, no tax, discounts, refunds, shipping, or currency conversion. Aggregate with decimal arithmetic.
 - `data_quality.csv` is separate from business totals. Blank fields are missing, not zero. Five rows include one duplicate beyond the first occurrence, one missing category and two missing amount cells. Do not silently clean them.
+
+- `empty_header_only.csv` intentionally contains only a header row and no data rows. Uploading it should be rejected with a clear empty-data validation message.
+- `oversized_upload.csv` is a valid synthetic CSV of approximately 10.005 MiB (92,840 data rows), created for the former 10 MiB limit. It is below the current 64 MiB limit and should now be accepted; its filename is retained for compatibility.
 
 ## Independently worked expected answers
 

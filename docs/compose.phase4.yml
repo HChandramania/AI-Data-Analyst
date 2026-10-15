@@ -1,0 +1,13 @@
+# Explicit isolated test provider. Production Compose never imports this fixture.
+services:
+  backend:
+    environment:
+      DBO_ENVIRONMENT: test
+    volumes:
+      - type: bind
+        source: ./backend/tests/phase4_server.py
+        target: /app/phase4_server.py
+        read_only: true
+        bind:
+          create_host_path: false
+    command: ["uvicorn", "phase4_server:fixture_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

@@ -2,7 +2,9 @@
   "name": "digital-back-office-frontend",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build && node scripts/prepare-standalone.mjs",
@@ -10,10 +12,21 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit"
   },
-  "dependencies": { "next": "16.4.0", "react": "19.3.0", "react-dom": "19.3.0" },
+  "dependencies": {
+    "next": "16.4.0",
+    "plotly.js-basic-dist-min": "^4.1.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
   "devDependencies": {
-    "@tailwindcss/postcss": "4.3.3", "tailwindcss": "4.3.3",
-    "typescript": "^5.9.3", "@types/node": "^24", "@types/react": "^19",
-    "@types/react-dom": "^19", "eslint": "9.39.5", "eslint-config-next": "16.4.0"
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "^24",
+    "@types/plotly.js": "^3.0.15",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5.9.3"
   }
 }

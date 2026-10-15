@@ -5,6 +5,7 @@
 __pycache__/
 .pytest_cache/
 .pytest_tmp/
+.phase3-tests-*/
 .phase1-smoke/
 .ruff_cache/
 *.pyc
@@ -21,3 +22,7 @@ out/
 .verification/
 .uv-cache/
 .npm-cache/
+
+# Local external datasets and generated report artifacts.
+/olist-data/
+/outputs/
